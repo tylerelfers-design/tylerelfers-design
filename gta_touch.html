@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>GTA Browser Prototyp - Touch</title>
+    <style>
+        body { margin:0; overflow:hidden; }
+        canvas { display:block; }
+
+        /* Touch-Steuerung */
+        #btnShoot, #btnEnter {
+          position: absolute;
+          width: 60px; height: 60px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.5);
+          text-align: center; line-height: 60px;
+          font-weight: bold;
+          user-select: none;
+          z-index: 10;
+        }
+        #btnShoot { right: 20px; bottom: 100px; }
+        #btnEnter { right: 20px; bottom: 20px; }
+        #joystick {
+          position: absolute; left: 20px; bottom: 20px;
+          width: 120px; height: 120px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.3);
+          touch-action: none;
+          z-index: 10;
+        }
+        #stick {
+          width: 60px; height: 60px; border-radius: 50%;
+          background: rgba(255,255,255,0.7);
+          position: absolute; top:30px; left:30px;
+        }
+    </style>
+</head>
+<body>
+<div id="joystick"><div id="stick"></div></div>
+<div id="btnShoot">🔫</div>
+<div id="btnEnter">🚗</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.156.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.156.0/examples/js/controls/PointerLockControls.js"></script>
+<script>
+/* --- Szene Setup --- */
+let scene = new THREE.Scene();
+scene.background = new THREE.Color(0xa0a0a0);
+
+let camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+let renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+/* --- Licht --- */
+let light = new THREE.DirectionalLight(0xffffff, 1);
+light.position.set(10,20,10);
+scene.add(light);
+scene.add(new THREE.AmbientLight(0x404040));
+
+/* --- Boden --- */
+let ground = new THREE.Mesh(new THREE.PlaneGeometry(500,500), new THREE.MeshStandardMaterial({color:0x228B22}));
+ground.rotation.x = -Math.PI/2;
+scene.add(ground);
+
+/* --- Spieler --- */
+let player = new THREE.Mesh(new THREE.BoxGeometry(1,2,1), new THREE.MeshStandardMaterial({color:0x0000ff}));
+player.position.y = 1;
+scene.add(player);
+
+/* --- Auto --- */
+let car = new THREE.Mesh(new THREE.BoxGeometry(2,1,4), new THREE.MeshStandardMaterial({color:0xff0000}));
+car.position.set(5,0.5,0);
+scene.add(car);
+let inCar = false;
+
+/* --- Polizei --- */
+let police = new THREE.Mesh(new THREE.BoxGeometry(2,1,4), new THREE.MeshStandardMaterial({color:0x0000ff}));
+police.position.set(-10,0.5,-10);
+scene.add(police);
+
+/* --- NPCs --- */
+let npcs = [];
+for(let i=0;i<5;i++){
+    let npc = new THREE.Mesh(new THREE.BoxGeometry(1,2,1), new THREE.MeshStandardMaterial({color:0xffff00}));
+    npc.position.set(Math.random()*20-10,1,Math.random()*20-10);
+    scene.add(npc);
+    npcs.push(npc);
+}
+
+/* --- Kamera Controls --- */
+let controls = new THREE.PointerLockControls(camera, document.body);
+document.body.addEventListener('click', ()=>controls.lock());
+camera.position.set(0,2,5);
+controls.getObject().position.copy(player.position);
+
+/* --- Touch Joystick --- */
+let joy = document.getElementById('joystick');
+let stick = document.getElementById('stick');
+let moveX=0, moveZ=0;
+let active=false;
+joy.addEventListener('touchstart', e=>{active=true;});
+joy.addEventListener('touchend', e=>{active=false; moveX=0; moveZ=0; stick.style.left='30px'; stick.style.top='30px';});
+joy.addEventListener('touchmove', e=>{
+    if(!active) return;
+    let rect = joy.getBoundingClientRect();
+    let touch = e.touches[0];
+    let x = touch.clientX - rect.left - 60;
+    let y = touch.clientY - rect.top - 60;
+    let max = 50;
+    if(x>max) x=max; if(x<-max)x=-max;
+    if(y>max) y=max; if(y<-max)y=-max;
+    stick.style.left = (30+x) + 'px';
+    stick.style.top = (30+y) + 'px';
+    moveX = x/50;
+    moveZ = -y/50;
+});
+
+/* --- Touch Buttons --- */
+let wantedLevel = 0;
+let btnShoot = document.getElementById('btnShoot');
+let btnEnter = document.getElementById('btnEnter');
+
+btnShoot.addEventListener('touchstart', e=>{
+    if(inCar) return;
+    let raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
+    let intersects = raycaster.intersectObjects(scene.children);
+    if(intersects.length>0){
+        intersects[0].object.material.color.set(0x000000);
+        wantedLevel += 1;
+    }
+});
+
+btnEnter.addEventListener('touchstart', e=>{
+    let target = car.position;
+    let playerPos = inCar ? car.position : player.position;
+    if(!inCar && playerPos.distanceTo(target)<3){ inCar=true; console.log("Auto betreten"); }
+    else if(inCar){ inCar=false; player.position.set(car.position.x+3,1,car.position.z); console.log("Auto verlassen"); }
+});
+
+/* --- Animation Loop --- */
+function animate(){
+    requestAnimationFrame(animate);
+
+    let speed = inCar ? 0.3 : 0.2;
+
+    if(inCar){
+        car.position.x += moveX*speed;
+        car.position.z += moveZ*speed;
+        controls.getObject().position.copy(car.position);
+    } else {
+        player.position.x += moveX*speed;
+        player.position.z += moveZ*speed;
+        controls.getObject().position.copy(player.position);
+    }
+
+    /* Polizei verfolgt Spieler */
+    if(wantedLevel>0){
+        let target = inCar ? car.position : player.position;
+        let dir = target.clone().sub(police.position).normalize();
+        police.position.add(dir.multiplyScalar(0.15));
+    }
+
+    /* NPCs laufen zufällig */
+    npcs.forEach(npc=>{
+        npc.position.x += (Math.random()-0.5)*0.05;
+        npc.position.z += (Math.random()-0.5)*0.05;
+    });
+
+    renderer.render(scene,camera);
+}
+animate();
+
+/* --- Fenstergröße anpassen --- */
+window.addEventListener('resize', ()=>{
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
